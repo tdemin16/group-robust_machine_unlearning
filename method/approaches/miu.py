@@ -9,6 +9,7 @@ from torch.nn import functional as F
 from tqdm import tqdm
 
 from method import utils
+from method.approaches.target_reweight import compute_weights
 from method.metrics import evaluate_after_unlearning, compute_equalized_odds
 
 

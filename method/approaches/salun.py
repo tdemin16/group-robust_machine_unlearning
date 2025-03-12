@@ -72,6 +72,7 @@ def compute_mask(model, forget_loader, criterion, args):
 def random_labeling_big(model, datasets, use_mask, run, args):
     assert args.world_size == 1, "SalUn is not compatible with distributed training"
     assert args.task == "classification", "SalUn is not compatible with multilabel classification"
+    print(f"{utils.bcolors.FAIL}[ERROR]{utils.bcolors.ENDC} You should not use random_labeling_big — use random_labeling_small instead! If you really want to use random_labeling_big, make sure it works properly, as I stopped maintaining it a while ago.")
 
     train_data = datasets.get_train_data(
         args.use_train_aug, subsample=args.rob_approach == "subsample"
@@ -89,16 +90,16 @@ def random_labeling_big(model, datasets, use_mask, run, args):
     )
 
     # if dro is activated, compute dro weights for the weighted sampler
-    dro_weights = None
+    sampler_weights = None
     num_groups = 0
     sensitive_attr = []
     if args.rob_approach == "dro":
         from method.approaches import compute_weights  # avoids circular imports
 
         target_attr, sensitive_attr, num_groups = datasets.get_attrs(split="train")
-        dro_weights = compute_weights(target_attr, sensitive_attr)
+        sampler_weights = compute_weights(target_attr, sensitive_attr)
 
-    train_sampler = utils.get_sampler(train_data, shuffle=True, weights=dro_weights)
+    train_sampler = utils.get_sampler(train_data, shuffle=True, weights=sampler_weights)
     forget_sampler = utils.get_sampler(forget_dataset, shuffle=True, weights=None)
 
     train_loader = generic_loader(train_data, sampler=train_sampler)
@@ -261,24 +262,22 @@ def random_labeling_small(model, datasets, use_mask, run, args):
         drop_last=args.drop_last,
     )
 
-    # if dro is activated, compute dro weights for the weighted sampler
-    dro_weights = None
+    # if rob_approach is set, compute weights for the weighted sampler
+    sampler_weights = None
     num_groups = 0
     num_sensitive_attr = 0
     if args.rob_approach in ("dro", "target_reweight"):
         if args.rob_approach == "target_reweight":
-            # from method.approaches.target_dro import compute_weights
-            #! implement
-            pass
+            from method.approaches.target_reweight import compute_weights
         else:
             from method.approaches.dro import compute_weights
 
-        dro_weights, group_counts, num_sensitive_attr, num_groups = compute_weights(
+        sampler_weights, group_counts, num_sensitive_attr, num_groups = compute_weights(
             datasets, split="retain"
         )
 
     train_sampler = utils.get_sampler(train_dataset, shuffle=False, weights=None)
-    retain_sampler = utils.get_sampler(retain_dataset, shuffle=True, weights=dro_weights)
+    retain_sampler = utils.get_sampler(retain_dataset, shuffle=True, weights=sampler_weights)
     forget_sampler = utils.get_sampler(forget_dataset, shuffle=True, weights=None)
 
     train_loader = generic_loader(train_dataset, sampler=train_sampler)

@@ -38,24 +38,22 @@ def scrub(model, datasets, run, args):
         drop_last=args.drop_last,
     )
 
-    # if dro is activated, compute dro weights for the weighted sampler
-    dro_weights = None
+    # if rob_approach is set, compute weights for the weighted sampler
+    sampler_weights = None
     num_groups = 0
     num_sensitive_attr = 0
     if args.rob_approach in ("dro", "target_reweight"):
         if args.rob_approach == "target_reweight":
-            # from method.approaches.target_dro import compute_weights
-            #! implement
-            pass
+            from method.approaches.target_reweight import compute_weights
         else:
             from method.approaches.dro import compute_weights
 
-        dro_weights, group_counts, num_sensitive_attr, num_groups = compute_weights(
+        sampler_weights, group_counts, num_sensitive_attr, num_groups = compute_weights(
             datasets, split="retain"
         )
 
     train_sampler = utils.get_sampler(train_data, shuffle=False, weights=None)
-    retain_sampler = utils.get_sampler(retain_dataset, shuffle=True, weights=dro_weights)
+    retain_sampler = utils.get_sampler(retain_dataset, shuffle=True, weights=sampler_weights)
     forget_sampler = utils.get_sampler(forget_dataset, shuffle=True, weights=None)
 
     train_loader = generic_loader(

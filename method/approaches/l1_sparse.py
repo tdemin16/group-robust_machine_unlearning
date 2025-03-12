@@ -39,21 +39,19 @@ def fine_tune(model, datasets, run, args):
     else:
         dataset = unlearning_datasets["retain"]
 
-    # if dro is activated, compute dro weights for the weighted sampler
-    dro_weights = None
+    # if rob_approach is set, compute weights for the weighted sampler
+    sampler_weights = None
     num_groups = 0
     num_sensitive_attr = 0
     if args.rob_approach in ("dro", "target_reweight"):
         if args.rob_approach == "target_reweight":
-            # from method.approaches.target_dro import compute_weights
-            #! IMPLEMENT
-            pass
+            from method.approaches.target_reweight import compute_weights
         else:
             from method.approaches.dro import compute_weights
 
-        dro_weights, group_counts, num_sensitive_attr, num_groups = compute_weights(datasets, split="retain")
+        sampler_weights, group_counts, num_sensitive_attr, num_groups = compute_weights(datasets, split="retain")
 
-    sampler = utils.get_sampler(dataset, shuffle=True, weights=dro_weights)
+    sampler = utils.get_sampler(dataset, shuffle=True, weights=sampler_weights)
 
     loader = torch.utils.data.DataLoader(
         dataset,

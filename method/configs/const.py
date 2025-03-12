@@ -69,6 +69,9 @@ def get_const(args) -> Const:
     else:
         path = args.const_file
 
+    # replace with abspath for better logging
+    path = os.path.abspath(path)
+
     # check config file existance
     if not os.path.isfile(path):
         print(f"{utils.bcolors.WARNING}[WARNING]{utils.bcolors.ENDC} {path} not found, using default const values.")
