@@ -107,6 +107,9 @@ $ python main.py --method miu --dataset fairface --multi_group 5
 - `SCRUB`: `$ python main.py --method scrub --dataset celeba --unlearning_ratio 0.5`
 - `L1-sparse`: `$ python main.py --method l1_sparse --dataset celeba --unlearning_ratio 0.5`
 
+### REWEIGHT
+Our sampling distribution reweighting is enabled by default on MIU. Add `--ablate_rw` flag when running `main.py` with MIU to disable it. Instead, to enable REWEIGHT on baselines and Retrain, add `--rob_approach target_reweight` when running `main.py`.
+
 
 ### Storing and Loading Checkpoints
 Checkpoints are stored by default in `output/` while they are loaded by default from `checkpoints/`. We used this configuration to avoid overwriting "good" checkpoints. These two locations can be changed using the following arguments: `--store_dir path/to/checkpoints` and `--checkpoint_dir path/to/checkpoints`.
