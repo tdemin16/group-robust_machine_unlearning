@@ -26,7 +26,7 @@ TODO
 ### Dependencies
 We used Python 3.12.4 for all our experiments. Therefore, we suggest creating a conda environment as follows:
 ```bash
-$ conda create -n oneshui python=3.12.4
+$ conda create -n grmu python=3.12.4
 ```
 and install pip requirements with:
 ```bash
