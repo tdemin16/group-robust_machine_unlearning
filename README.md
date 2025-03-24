@@ -20,7 +20,14 @@ Group-robust Machine Unlearning</br>(Under review)
 *Machine unlearning is an emerging paradigm to remove the influence of specific training data (i.e., the forget set) from a model while preserving its knowledge of the rest of the data (i.e., the retain set). Previous approaches assume the forget data to be uniformly distributed from all training datapoints. However, if the data to unlearn is dominant in one group, we empirically show that performance for this group degrades, leading to fairness issues. This work tackles the overlooked problem of non-uniformly distributed forget sets, which we call group-robust machine unlearning, by presenting a simple, effective strategy that mitigates the performance loss in dominant groups via sample distribution reweighting. Moreover, we present MIU (Mutual Information-aware Machine Unlearning), the first approach for group robustness in approximate machine unlearning. MIU minimizes the mutual information between model features and group information, achieving unlearning while reducing performance degradation in the dominant group of the forget set. Additionally, MIU exploits sample distribution reweighting and mutual information calibration with the original model to preserve group robustness. We conduct experiments on three datasets and show that MIU outperforms standard methods, achieving unlearning without compromising model robustness.*
 
 ## Citation
-TODO
+```
+@article{de2025group,
+  title={Group-robust Machine Unlearning},
+  author={De Min, Thomas and Roy, Subhankar and Lathuili{\`e}re, St{\'e}phane and Ricci, Elisa and Mancini, Massimiliano},
+  journal={arXiv preprint arXiv:2503.09330},
+  year={2025}
+}
+```
 
 ## Installation 
 ### Dependencies
