@@ -8,7 +8,7 @@ Group-robust Machine Unlearning</br>(Under review)
 
 #### [Thomas De Min](https://scholar.google.com/citations?user=fnh_i0cAAAAJ&hl=en), [Subhankar Roy](https://scholar.google.it/citations?user=YfzgrDYAAAAJ&hl=en), [Stéphane Lathuilière](https://scholar.google.fr/citations?user=xllguWMAAAAJ&hl=fr), </br>[Elisa Ricci](https://scholar.google.com/citations?user=xf1T870AAAAJ&hl=it&authuser=1), and [Massimiliano Mancini](https://scholar.google.com/citations?hl=it&authuser=1&user=bqTPA8kAAAAJ)
 
-<!-- [![Paper](https://img.shields.io/badge/Paper-arxiv.2407.12069-B31B1B.svg)](https://arxiv.org/abs/2407.12069) -->
+[![Paper](https://img.shields.io/badge/Paper-arxiv.2503.09330-B31B1B.svg)](https://arxiv.org/abs/2503.09330)
 
 <p align="center">
   <img src="assets/teaser.png" width=50%/>
