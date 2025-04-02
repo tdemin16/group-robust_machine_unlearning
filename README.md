@@ -79,9 +79,9 @@ waterbird_complete95_forest2water2/
 
 ## Run Experiments
 Run each experiment using `python main.py` with different arguments. 
-As different unlearning ratios results in different splits, we pretrain and retrain one set of models for each split.
-We suggest training `pretrain` and `retrain` first and the unlearn.
-Run `python main.py --help` for the full list of available arguements. 
+As different unlearning ratios result in different splits, we pretrain and retrain one set of models for each split.
+We suggest training `pretrain` and `retrain` first and then unlearn.
+Run `python main.py --help` for the full list of available arguments. 
 Below we report a couple of scenarios.
 
 ### Pretrain
@@ -97,7 +97,7 @@ $ python main.py --method retrain --dataset waterbird --unlearning_ratio 0.1
 ```
 
 ### MIU
-Unlearn using MIU on FairFace for unlearning ratio 0.9:
+Unlearn using MIU on FairFace for an unlearning ratio 0.9:
 ```bash
 $ python main.py --method miu --dataset fairface --unlearning_ratio 0.9
 ```
