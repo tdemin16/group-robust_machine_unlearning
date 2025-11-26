@@ -3,8 +3,9 @@ import json
 import math
 import os
 import time
-import torch
 from functools import partial
+
+import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 
@@ -81,7 +82,10 @@ def tune_mine(model, mi, train_loader, num_sensitive_attr, optim, iterations, ar
     def hook_fn(module, input, output):
         z.append(input[0])
 
-    hook_handle_unlearned = model.fc.register_forward_hook(hook_fn)
+    if args.model != "bert":
+        hook_handle_unlearned = model.fc.register_forward_hook(hook_fn)
+    else:
+        hook_handle_unlearned = model.classifier.register_forward_hook(hook_fn)
 
     # get mi and optimizer for original and unlearning model
     mi_unlearning = mi["unlearning"]
@@ -100,11 +104,28 @@ def tune_mine(model, mi, train_loader, num_sensitive_attr, optim, iterations, ar
     i = -1
     bar = tqdm(range(iterations), leave=False, dynamic_ncols=True, desc="Tuning MINE")
     for _ in range(iterations // len(train_loader) + 1):
-        for image, target, sensitive in train_loader:
+        for input, target, sensitive in train_loader:
             z = []
             i += 1
-            with torch.autocast(device_type="cuda", dtype=args.dtype):
-                image = image.to(device=args.device, dtype=args.dtype)
+            if args.model != "bert":
+                with torch.autocast(device_type="cuda", dtype=args.dtype):
+                    input = input.to(device=args.device, dtype=args.dtype)
+                    target = target.to(args.device)
+                    sensitive = sensitive.to(args.device)
+
+                    # random sensitive and target attributes (for marginalization)
+                    target_tilde = torch.randint_like(target, args.num_classes)
+                    sensitive_tilde = torch.randint_like(sensitive, num_sensitive_attr)
+
+                    # compute group and random group (for marginalization)
+                    group = sensitive + target * num_sensitive_attr
+                    group_tilde = sensitive_tilde + target_tilde * num_sensitive_attr
+
+                    with torch.no_grad():
+                        _ = model(input)
+
+            else:
+                input = input.to(device=args.device)
                 target = target.to(args.device)
                 sensitive = sensitive.to(args.device)
 
@@ -112,19 +133,25 @@ def tune_mine(model, mi, train_loader, num_sensitive_attr, optim, iterations, ar
                 target_tilde = torch.randint_like(target, args.num_classes)
                 sensitive_tilde = torch.randint_like(sensitive, num_sensitive_attr)
 
-                # crompute group and random group (for marginalization)
+                # compute group and random group (for marginalization)
                 group = sensitive + target * num_sensitive_attr
                 group_tilde = sensitive_tilde + target_tilde * num_sensitive_attr
 
                 with torch.no_grad():
-                    _ = model(image)
+                    _ = model(
+                        input_ids=input[:, :, 0],
+                        attention_mask=input[:, :, 1],
+                        token_type_ids=input[:, :, 2],
+                        labels=target,
+                        # return logits
+                    )[1]
 
             # maximize mutual information
             loss = -mi_unlearning(z[0].float(), group, group_tilde)
             loss += -mi_original(z[0].float(), group, group_tilde)
 
             if torch.isnan(loss):
-                print(f"Loss is {loss.item()}.")
+                print(f"MINE loss is {loss.item()}.")
                 exit()
 
             loss.backward()
@@ -167,7 +194,7 @@ def print_group_dist(dataset, num_sensitive_attr):
         group = sensitive + target * num_sensitive_attr
         if str(group) not in counts:
             counts[str(group)] = 0
-        
+
         counts[str(group)] += 1
 
     print(counts)
@@ -220,8 +247,9 @@ def miu(model, datasets, run, args):
     model_optimizer = utils.get_optimizer(unlearned_model, args)
     model_scheduler = utils.get_scheduler(model_optimizer, args)
 
+    z_size = 512 if args.model != "bert" else 768
     # mine features-group to compute unlearning and debiasing
-    mine_unlearning = MINE(z_size=512, c_size=args.num_classes * num_sensitive_attr)
+    mine_unlearning = MINE(z_size=z_size, c_size=args.num_classes * num_sensitive_attr)
     mi_unlearning = MutualInformation(mine_unlearning)
     mi_unlearning.to(args.device)
     mine_unlearning_optimizer = torch.optim.SGD(
@@ -229,7 +257,7 @@ def miu(model, datasets, run, args):
     )
 
     # mine features-attributes of original model
-    mine_original = MINE(z_size=512, c_size=args.num_classes * num_sensitive_attr)
+    mine_original = MINE(z_size=z_size, c_size=args.num_classes * num_sensitive_attr)
     mi_original = MutualInformation(mine_original)
     mi_original.to(args.device)
     mine_original_optimizer = torch.optim.SGD(
@@ -259,11 +287,17 @@ def miu(model, datasets, run, args):
         def hook_fn(module, input, output):
             z.append(input[0])
 
-        hook_handle_unlearned = unlearned_model.fc.register_forward_hook(hook_fn)
+        if args.model != "bert":
+            hook_handle_unlearned = unlearned_model.fc.register_forward_hook(hook_fn)
+        else:
+            hook_handle_unlearned = unlearned_model.classifier.register_forward_hook(hook_fn)
 
         # add hook to original model if control bias
         if args.control_bias:
-            hook_handle_model = model.fc.register_forward_hook(hook_fn)
+            if args.model != "bert":
+                hook_handle_model = model.fc.register_forward_hook(hook_fn)
+            else:
+                hook_handle_model = model.classifier.register_forward_hook(hook_fn)
 
         len_dataloaders = len(retain_loader)
         if epoch < 5:
@@ -284,9 +318,22 @@ def miu(model, datasets, run, args):
 
         # unlearn for the first 5 epochs
         if epoch < args.forgetting_epochs and not args.ablate_unlearn:
-            for image, target, sensitive in forget_loader:
-                with torch.autocast(device_type="cuda", dtype=args.dtype):
-                    image = image.to(device=args.device, dtype=args.dtype)
+            for input, target, sensitive in forget_loader:
+                if args.model != "bert":
+                    with torch.autocast(device_type="cuda", dtype=args.dtype):
+                        input = input.to(device=args.device, dtype=args.dtype)
+                        target = target.to(args.device)
+                        sensitive = sensitive.to(args.device)
+
+                        # compute group and random group for marginalization
+                        group = sensitive + target * num_sensitive_attr
+                        group_tilde = torch.randint_like(group, num_groups)
+
+                        z = []
+                        _ = unlearned_model(input)
+
+                else:
+                    input = input.to(device=args.device)
                     target = target.to(args.device)
                     sensitive = sensitive.to(args.device)
 
@@ -295,13 +342,19 @@ def miu(model, datasets, run, args):
                     group_tilde = torch.randint_like(group, num_groups)
 
                     z = []
-                    _ = unlearned_model(image)
+                    _ = unlearned_model(
+                        input_ids=input[:, :, 0],
+                        attention_mask=input[:, :, 1],
+                        token_type_ids=input[:, :, 2],
+                        labels=target,
+                        # return logits
+                    )[1]
 
                 # minimize mutual information
                 loss = mi_unlearning(z[0].float(), group, group_tilde)
 
                 if torch.isnan(loss):
-                    print(f"Loss is {loss.item()}.")
+                    print(f"forget loss is {loss.item()}.")
                     exit()
 
                 loss.backward()
@@ -315,9 +368,21 @@ def miu(model, datasets, run, args):
                 if args.debug:
                     break
 
-        for image, target, sensitive in retain_loader:
-            with torch.autocast(device_type="cuda", dtype=args.dtype):
-                image = image.to(device=args.device, dtype=args.dtype)
+        for input, target, sensitive in retain_loader:
+            if args.model != "bert":
+                with torch.autocast(device_type="cuda", dtype=args.dtype):
+                    input = input.to(device=args.device, dtype=args.dtype)
+                    target = target.to(args.device)
+                    sensitive = sensitive.to(args.device)
+
+                    # compute group and random group for marginalization
+                    group = sensitive + target * num_sensitive_attr
+                    group_tilde = torch.randint_like(group, num_groups)
+
+                    z = []
+                    output = unlearned_model(input)
+            else:
+                input = input.to(device=args.device)
                 target = target.to(args.device)
                 sensitive = sensitive.to(args.device)
 
@@ -326,7 +391,13 @@ def miu(model, datasets, run, args):
                 group_tilde = torch.randint_like(group, num_groups)
 
                 z = []
-                output = unlearned_model(image)
+                output = unlearned_model(
+                    input_ids=input[:, :, 0],
+                    attention_mask=input[:, :, 1],
+                    token_type_ids=input[:, :, 2],
+                    labels=target,
+                    # return logits
+                )[1]
 
             loss = 0
             if not args.ablate_retain:
@@ -336,8 +407,18 @@ def miu(model, datasets, run, args):
             if args.control_bias and not args.ablate_alignment:
                 feats = z[0].float()
                 z = []
-                with torch.no_grad(), torch.autocast(device_type="cuda", dtype=args.dtype):
-                    _ = model(image)
+
+                if args.model != "bert":
+                    with torch.no_grad(), torch.autocast(device_type="cuda", dtype=args.dtype):
+                        _ = model(input)
+                else:
+                    _ = model(
+                        input_ids=input[:, :, 0],
+                        attention_mask=input[:, :, 1],
+                        token_type_ids=input[:, :, 2],
+                        labels=target,
+                        # return logits
+                    )[1]
 
                 # original model features
                 original_feats = z[0].float()
@@ -349,7 +430,7 @@ def miu(model, datasets, run, args):
                 )
 
             if torch.isnan(loss):
-                print(f"Loss is {loss.item()}.")
+                print(f"retain loss is {loss.item()}.")
                 exit()
 
             loss.backward()
@@ -403,7 +484,7 @@ def miu(model, datasets, run, args):
 
         if args.debug:
             break
-    
+
     if args.store_curves:
         curves_dir = os.path.join(args.curves_store_dir, args.dataset, args.model)
         if not os.path.exists(curves_dir):
@@ -417,6 +498,5 @@ def miu(model, datasets, run, args):
 
         with open(curves_path, "w") as fp:
             json.dump(acc_curves, fp)
-
 
     return unlearned_model

@@ -82,6 +82,9 @@ def scrub(model, datasets, run, args):
     optimizer = utils.get_optimizer(unlearned_model, args)
     scheduler = utils.get_scheduler(optimizer, args)
 
+    unlearned_model.train()
+    optimizer.zero_grad()
+
     acc_curves = {"UA": [], "TA": [], "GA": []}
     num_digits = len(str(args.epochs))
     for epoch in range(args.epochs):
@@ -96,18 +99,39 @@ def scrub(model, datasets, run, args):
 
         # ? Forget step
         if epoch < args.forgetting_epochs:
-            for image, target, sensitive in tqdm(
+            for input, target, sensitive in tqdm(
                 forget_loader, desc="Forget Step", leave=False, dynamic_ncols=True
             ):
-                with torch.autocast(device_type="cuda", dtype=args.dtype):
-                    image = image.to(device=args.device, dtype=args.dtype)
+                if args.model != "bert":
+                    with torch.autocast(device_type="cuda", dtype=args.dtype):
+                        input = input.to(device=args.device, dtype=args.dtype)
+                        target = target.to(args.device)
+                        sensitive = sensitive.to(args.device)
+                        output = unlearned_model(input)
+                        with torch.no_grad():
+                            original_output = model(input)
+
+                else:
+                    input = input.to(device=args.device)
                     target = target.to(args.device)
                     sensitive = sensitive.to(args.device)
-                    output = unlearned_model(image)
+                    output = unlearned_model(
+                        input_ids=input[:, :, 0],
+                        attention_mask=input[:, :, 1],
+                        token_type_ids=input[:, :, 2],
+                        labels=target,
+                        # return logits
+                    )[1]
                     with torch.no_grad():
-                        original_output = model(image)
+                        original_output = model(
+                            input_ids=input[:, :, 0],
+                            attention_mask=input[:, :, 1],
+                            token_type_ids=input[:, :, 2],
+                            labels=target,
+                            # return logits
+                        )[1]
 
-                    loss = -kl_div(output, original_output, args.temperature_scrub)
+                loss = -kl_div(output, original_output, args.temperature_scrub)
 
                 loss.backward()
                 optimizer.step()
@@ -117,23 +141,43 @@ def scrub(model, datasets, run, args):
                     break
 
         # ? Retain step
-        for image, target, sensitive in tqdm(
+        for input, target, sensitive in tqdm(
             retain_loader, desc="Retain Step", leave=False, dynamic_ncols=True
         ):
-            with torch.autocast(device_type="cuda", dtype=args.dtype):
-                image = image.to(device=args.device, dtype=args.dtype)
+            if args.model != "bert":
+                with torch.autocast(device_type="cuda", dtype=args.dtype):
+                    input = input.to(device=args.device, dtype=args.dtype)
+                    target = target.to(args.device)
+                    sensitive = sensitive.to(args.device)
+                    output = unlearned_model(input)
+                    with torch.no_grad():
+                        original_output = model(input)
+            
+            else:
+                input = input.to(device=args.device)
                 target = target.to(args.device)
                 sensitive = sensitive.to(args.device)
-
-                output = unlearned_model(image)
+                output = unlearned_model(
+                    input_ids=input[:, :, 0],
+                    attention_mask=input[:, :, 1],
+                    token_type_ids=input[:, :, 2],
+                    labels=target,
+                    # return logits
+                )[1]
                 with torch.no_grad():
-                    original_output = model(image)
+                    original_output = model(
+                        input_ids=input[:, :, 0],
+                        attention_mask=input[:, :, 1],
+                        token_type_ids=input[:, :, 2],
+                        labels=target,
+                        # return logits
+                    )[1]
 
-                loss = args.alpha_scrub * kl_div(output, original_output, args.temperature_scrub)
-                if "dro" not in args.rob_approach:
-                    loss += args.gamma_scrub * criterion(output, target)
-                else:
-                    loss += args.gamma_scrub * criterion(output, target, sensitive)
+            loss = args.alpha_scrub * kl_div(output, original_output, args.temperature_scrub)
+            if "dro" not in args.rob_approach:
+                loss += args.gamma_scrub * criterion(output, target)
+            else:
+                loss += args.gamma_scrub * criterion(output, target, sensitive)
 
             loss.backward()
             optimizer.step()

@@ -18,7 +18,7 @@ forgetting_epochs: 7
 use_train_aug: True
 ssd_dampening_constant: 0.1
 ssd_selection_weighting: 0.1
-
+jtt_upsample: 1
 dro_lr: 0.01
 compute_freq: False
 mine_lr: 0.01
@@ -45,7 +45,7 @@ lambda_mi: 1
 # use_train_aug: True
 # ssd_dampening_constant: 0.1
 # ssd_selection_weighting: 0.1
-# 
+# jtt_upsample: 1
 # dro_lr: 0.01
 # compute_freq: False
 # mine_lr: 0.01

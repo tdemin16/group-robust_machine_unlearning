@@ -25,6 +25,7 @@ def get_argparser() -> argparse.ArgumentParser:
         choices=[
             "vit_base_patch16_224",
             "resnet18",
+            "bert",
         ],
     )
     parser.add_argument("--pretrained", type=str2bool, default="True")
@@ -35,10 +36,10 @@ def get_argparser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset",
         type=str,
-        choices=["celeba", "fairface", "waterbird"],
+        choices=["celeba", "fairface", "imagenetr", "waterbird", "multinli"],
         default="fairface",
     )
-    parser.add_argument("--data_dir", type=str, default="/home/tdemin/datasets/")
+    parser.add_argument("--data_dir", type=str, default="/data/tdemin/datasets/")
     parser.add_argument(
         "--download", type=str2bool, default="False", help="Download the dataset when possible."
     )
@@ -69,8 +70,8 @@ def get_argparser() -> argparse.ArgumentParser:
         "--rob_approach",
         type=str,
         default="none",
-        choices=["none", "dro", "subsample", "target_reweight"],
-        help="Which approach for group robustness to use. none: no robust optimization; dro: use group DRO; subsample: subsample dataset based on grup information; target_reweight: reweight sampling targeting original data distribution.",
+        choices=["none", "dro", "subsample", "target_reweight", "target_dro"],
+        help="Which approach for group robustness to use. none: no robust optimization; dro: use group DRO; subsample: subsample dataset based on grup information; target_reweight: reweight sampling targeting original data distribution; target_dro: use proposed target DRO.",
     )
     parser.add_argument("--unlearning_type", type=str, default="bias", choices=["bias", "random"])
     parser.add_argument(
@@ -84,6 +85,9 @@ def get_argparser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--multi_group", type=int, default=0, help="Unlearn multiple groups rather than one."
+    )
+    parser.add_argument(
+        "--tmlr_rebuttal_exp", action="store_true"
     )
 
     # --- Ablations --- #
@@ -240,14 +244,7 @@ def parse_args() -> argparse.Namespace:
     parser = get_argparser()
     args = parser.parse_args()
 
-    if args.unlearning_type == "bias":
-        assert args.dataset in ("fairface", "celeba", "waterbird")
-    elif args.unlearning_type == "random":
-        assert args.dataset in ("fairface", "celeba", "waterbird")
-    else:
-        raise ValueError(f"Unknown unlearning type {args.unlearning_type}")
-
-    if args.dataset in ("celeba", "fairface", "waterbird"):
+    if args.dataset in ("celeba", "fairface", "imagenetr", "waterbird", "multinli"):
         args.criterion = "cross_entropy"
         args.task = "classification"
 

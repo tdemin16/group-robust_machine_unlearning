@@ -1,7 +1,7 @@
 
 
 <h1 align="center">
-Group-robust Machine Unlearning</br>(Under review)
+Group-robust Machine Unlearning</br>(TMLR 2025)
 </h1>
 
 <div align="center">
@@ -21,22 +21,43 @@ Group-robust Machine Unlearning</br>(Under review)
 
 ## Citation
 ```
-@article{de2025group,
+@article{
+  min2025,
   title={Group-robust Machine Unlearning},
-  author={De Min, Thomas and Roy, Subhankar and Lathuili{\`e}re, St{\'e}phane and Ricci, Elisa and Mancini, Massimiliano},
-  journal={arXiv preprint arXiv:2503.09330},
-  year={2025}
+  author={Thomas De Min and Subhankar Roy and St{\'e}phane Lathuili{\`e}re and Elisa Ricci and Massimiliano Mancini},
+  journal={Transactions on Machine Learning Research},
+  year={2025},
+  url={https://openreview.net/forum?id=StSq7mpUVw},
+  note={}
 }
 ```
 
 ## Installation 
 ### Dependencies
-We used Python 3.12.4 for all our experiments. Therefore, we suggest creating a conda environment as follows:
+We used [uv](https://docs.astral.sh/uv/) as a Python package and project manager.
+You can install uv without sudo access by:
 ```bash
-$ conda create -n grmu python=3.12.4
+$ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-and install pip requirements with:
+After installing it, run the following command to create the .venv:
 ```bash
+$ uv venv
+```
+Then, activate the environment as usual:
+```bash
+$ source .venv/bin/activate
+```
+Finally, install the requirements:
+```bash
+$ uv sync --frozen
+```
+
+### Alternative installation
+If you do not want to install uv and prefer using conda or plain pip, we `pip freeze` the requirements into `requirements.txt` and use `python=3.12.9`.
+
+```bash
+$ conda create -n grmu python=3.12.9
+$ conda activate grmu
 $ pip install -r requirements.txt
 ```
 
@@ -75,6 +96,12 @@ waterbird_complete95_forest2water2/
     ├── 089.Hooded_Merganser/
     ├── 026.Bronzed_Cowbird/
     └── metadata.csv
+multinli_1.0/
+    ├── bert_features/
+        ├── cached_train_bert-base-uncased_128_mnli
+        ├── cached_dev_bert-base-uncased_128_mnli
+        └── cached_dev_bert-base-uncased_128_mnli-mm    
+    └── metadata_random.csv
 ```
 
 ## Run Experiments
@@ -100,6 +127,12 @@ $ python main.py --method retrain --dataset waterbird --unlearning_ratio 0.1
 Unlearn using MIU on FairFace for an unlearning ratio 0.9:
 ```bash
 $ python main.py --method miu --dataset fairface --unlearning_ratio 0.9
+```
+
+### SalUN 
+Unlearn using SalUN on MultiNLI
+```bash
+$ python main.py --model bert --method salun --dataset multinli
 ```
 
 ### MIU - Multi Group

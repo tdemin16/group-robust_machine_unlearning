@@ -78,27 +78,43 @@ def fine_tune(model, datasets, run, args):
     optimizer = utils.get_optimizer(unlearned_model, args)
     scheduler = utils.get_scheduler(optimizer, args)
 
+    unlearned_model.train()
+    optimizer.zero_grad()
+
     acc_curves = {"UA": [], "TA": [], "GA": []}
     num_digits = len(str(args.epochs))
     for epoch in range(args.epochs):
         unlearned_model.train()
         alpha = compute_alpha(epoch, args.epochs, args.l1_penalty)
-        for image, target, sensitive in loader:
-            with torch.autocast(device_type="cuda", dtype=args.dtype):
-                image = image.to(device=args.device, dtype=args.dtype)
+        for input, target, sensitive in loader:
+            if args.model != "bert":
+                with torch.autocast(device_type="cuda", dtype=args.dtype):
+                    input = input.to(device=args.device, dtype=args.dtype)
+                    target = target.to(args.device)
+                    sensitive = sensitive.to(args.device)
+                    output = unlearned_model(input)
+
+            else:
+                input = input.to(device=args.device)
                 target = target.to(args.device)
                 sensitive = sensitive.to(args.device)
+                output = unlearned_model(
+                    input_ids=input[:, :, 0],
+                    attention_mask=input[:, :, 1],
+                    token_type_ids=input[:, :, 2],
+                    labels=target,
+                    # return logits
+                )[1]
 
-                output = unlearned_model(image)
-                if "dro" not in args.rob_approach:
-                    loss = criterion(output, target)
-                else:
-                    loss = criterion(output, target, sensitive)
+            if "dro" not in args.rob_approach:
+                loss = criterion(output, target)
+            else:
+                loss = criterion(output, target, sensitive)
 
-                if args.method == "ga":
-                    loss *= -1
-                elif args.method == "l1_sparse":
-                    loss += alpha * l1_regularization(unlearned_model)
+            if args.method == "ga":
+                loss *= -1
+            elif args.method == "l1_sparse":
+                loss += alpha * l1_regularization(unlearned_model)
 
             loss.backward()
             optimizer.step()

@@ -1,6 +1,8 @@
 import torch
 from functools import partial
 
+from torch.optim.adamw import AdamW
+
 from method import utils
 from method.engine import train_and_eval
 
@@ -14,7 +16,9 @@ def train(model: torch.nn.Module, datasets, run, args):
     train_dataset = (
         datasets.get_train_data(subsample=args.rob_approach == "subsample")
         if args.method == "pretrain"
-        else datasets.get_unlearning_data(train=True, subsample=args.rob_approach == "subsample")["retain"]
+        else datasets.get_unlearning_data(train=True, subsample=args.rob_approach == "subsample")[
+            "retain"
+        ]
     )
     val_dataset = datasets.get_val_data()
 
@@ -55,9 +59,33 @@ def train(model: torch.nn.Module, datasets, run, args):
         num_sensitive_attr=num_sensitive_attr,
     ).to(args.device)
 
-    optimizer = utils.get_optimizer(model, args)
-    scheduler = utils.get_scheduler(optimizer, args)
-    warmup_scheduler = utils.get_warmup_scheduler(optimizer, len(train_loader), args)
+    if args.model != "bert":
+        optimizer = utils.get_optimizer(model, args)
+        scheduler = utils.get_scheduler(optimizer, args)
+        warmup_scheduler = utils.get_warmup_scheduler(optimizer, len(train_loader), args)
+
+    else:
+        no_decay = ["bias", "LayerNorm.weight"]
+        optimizer_grouped_params = [
+            {
+                "params": [
+                    p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": args.weight_decay,
+            },
+            {
+                "params": [
+                    p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": 0.0,
+            },
+        ]
+        optimizer = AdamW(
+            optimizer_grouped_params,
+            lr=args.lr,
+        )
+        scheduler = utils.get_scheduler(optimizer, args)
+        warmup_scheduler = utils.get_warmup_scheduler(optimizer, len(train_loader), args)
 
     utils.print_info(args, model, train_loader)
 

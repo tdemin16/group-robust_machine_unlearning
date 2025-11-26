@@ -1,8 +1,9 @@
+import warnings
+from functools import partial
+
+import numpy as np
 import torch
 import torchmetrics
-import warnings
-
-from functools import partial
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score
 
@@ -13,7 +14,9 @@ from method.dataset.dataset_classes import UnlearningDataset
 def mean_average_precision(logits: torch.Tensor, targets: torch.Tensor, task: str):
     with warnings.catch_warnings(action="ignore"):
         logits = torch.nn.functional.sigmoid(logits)
-        return torchmetrics.functional.average_precision(logits, targets, task=task, num_labels=logits.size(1))
+        return torchmetrics.functional.average_precision(
+            logits, targets, task=task, num_labels=logits.size(1)
+        )
 
 
 def evaluate_after_unlearning(
@@ -44,8 +47,12 @@ def evaluate_after_unlearning(
     test_loader = partial_loader(unlearning_data["test"])
 
     # evaluate model on retain, forget, and test set
-    retain_stats = evaluate(model, retain_loader, criterion, args.device, args.debug, args.task, args)
-    forget_stats = evaluate(model, forget_loader, criterion, args.device, args.debug, args.task, args)
+    retain_stats = evaluate(
+        model, retain_loader, criterion, args.device, args.debug, args.task, args
+    )
+    forget_stats = evaluate(
+        model, forget_loader, criterion, args.device, args.debug, args.task, args
+    )
     val_stats = evaluate(model, val_loader, criterion, args.device, args.debug, args.task, args)
     test_stats = evaluate(model, test_loader, criterion, args.device, args.debug, args.task, args)
 
@@ -69,12 +76,12 @@ def evaluate_after_unlearning(
 def compute_loss(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, args):
     model.eval()
     losses = []
-    for image, target, sensitive in dataloader:
+    for input, target, sensitive in dataloader:
         with torch.autocast(device_type="cuda", dtype=args.dtype):
-            image = image.to(device=args.device, dtype=args.dtype)
+            input = input.to(device=args.device, dtype=args.dtype)
             target = target.to(args.device)
             sensitive = sensitive.to(args.device)
-            output = model(image)
+            output = model(input)
             loss = torch.nn.functional.cross_entropy(output, target, reduction="none")
 
         losses.append(loss)
@@ -86,22 +93,30 @@ def compute_loss(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader
 
 
 def compute_basic_mia(retain_losses, forget_losses, val_losses, test_losses):
-    train_loss = torch.cat((retain_losses, val_losses), dim=0).unsqueeze(1).cpu().numpy()
-    train_target = torch.cat((torch.ones(retain_losses.size(0)), torch.zeros(val_losses.size(0))), dim=0).numpy()
-    test_loss = torch.cat((forget_losses, test_losses), dim=0).unsqueeze(1).cpu().numpy()
-    test_target = torch.cat((torch.ones(forget_losses.size(0)), torch.zeros(test_losses.size(0)))).cpu().numpy()
-    
+    train_loss = torch.cat((retain_losses, val_losses), dim=0).to(float).unsqueeze(1).cpu().numpy()
+    train_target = torch.cat(
+        (torch.ones(retain_losses.size(0)), torch.zeros(val_losses.size(0))), dim=0
+    ).numpy()
+    test_loss = torch.cat((forget_losses, test_losses), dim=0).to(float).unsqueeze(1).cpu().numpy()
+    test_target = (
+        torch.cat((torch.ones(forget_losses.size(0)), torch.zeros(test_losses.size(0)))).to(float)
+        .cpu()
+        .numpy()
+    )
+
     best_auc = 0
     best_acc = 0
     for n_est in [20, 50, 100]:
-        for criterion in ['gini', 'entropy']:
-            mia_model = RandomForestClassifier(n_estimators=n_est, criterion=criterion, n_jobs=8, random_state=0)
+        for criterion in ["gini", "entropy"]:
+            mia_model = RandomForestClassifier(
+                n_estimators=n_est, criterion=criterion, n_jobs=8, random_state=0
+            )
             mia_model.fit(train_loss, train_target)
-            
+
             y_hat = mia_model.predict_proba(test_loss)[:, 1]
             auc = roc_auc_score(test_target, y_hat) * 100
 
-            y_hat = mia_model.predict(forget_losses.unsqueeze(1).cpu().numpy()).mean()
+            y_hat = mia_model.predict(forget_losses.to(float).unsqueeze(1).cpu().numpy()).mean()
             acc = (1 - y_hat) * 100
 
             if acc > best_acc:
@@ -135,29 +150,51 @@ def compute_equalized_odds(model, datasets, args):
     sensitive_attr_idx = torch.tensor(sensitive_attr_idx, device=args.device)
 
     target_acc = []
+    group_acc = {}
 
-    for image, target, sensitive in test_loader:
-        image = image.to(args.device)
+    for input, target, sensitive in test_loader:
+        input = input.to(args.device)
         target = target.to(args.device)
         sensitive = sensitive.to(args.device)
-        output = model(image)
+        if args.model != "bert":
+            output = model(input)
+        else:
+            input_ids = input[:, :, 0]
+            input_mask = input[:, :, 1]
+            segment_ids = input[:, :, 2]
+            output = model(
+                input_ids=input_ids,
+                attention_mask=input_mask,
+                token_type_ids=segment_ids,
+                labels=target,
+                # return logits
+            )[1]
         pred = torch.argmax(output, dim=-1)
 
         # sa = sensitive
         # ta = target
-        ta = torch.isin(target, target_attr_idx).int()
-        sa = torch.isin(sensitive, sensitive_attr_idx).int()
+        if args.dataset in ("fairface", "multinli"):
+            ta = torch.isin(target, target_attr_idx).int()
+            sa = torch.isin(sensitive, sensitive_attr_idx).int()
+        else:
+            ta = target
+            sa = sensitive
         for sa_, ta_, p, o in zip(sa, ta, pred, target):
             accs[ta_][sa_].append((p == o).float().item())
 
         for p, t, s in zip(pred, target, sensitive):
             if torch.isin(t, target_attr_idx) and torch.isin(s, sensitive_attr_idx):
-                target_acc.append((p==t).float().item())
+                target_acc.append((p == t).float().item())
+
+        for p, s, t in zip(pred, sensitive, target):
+            if f"({t}, {s})" not in group_acc:
+                group_acc[f"({t}, {s})"] = []
+            group_acc[f"({t}, {s})"].append((p == t).float().item())
 
     for i in range(len(accs)):
         for j in range(len(accs[i])):
             accs[i][j] = sum(accs[i][j]) / len(accs[i][j])
-    
+
     eo = 0
     eo_size = 0
     for ta in range(len(accs)):
@@ -169,7 +206,10 @@ def compute_equalized_odds(model, datasets, args):
 
     target_acc = sum(target_acc) / len(target_acc)
 
-    return eo * 100, target_acc * 100
+    for group in group_acc:
+        group_acc[group] = np.mean(group_acc[group]) * 100
+
+    return eo * 100, target_acc * 100, group_acc
 
 
 def compute_tow(appx, ref):
@@ -179,7 +219,7 @@ def compute_tow(appx, ref):
 def compute_gap(metrics, target):
     gap = []
     for metric in ["retain/acc", "forget/acc", "test/acc", "mia/acc", "eo", "target_acc"]:
-        gap.append(abs(metrics[metric] - target[metric])) 
+        gap.append(abs(metrics[metric] - target[metric]))
     return sum(gap) / len(gap)
 
 
@@ -219,13 +259,15 @@ def compute_unlearning_metrics(
             * 100
         )
     elif args.method != "retrain":
-        print(f"{utils.bcolors.WARNING}[WARNING]{utils.bcolors.ENDC} Retrain Metrics not found, skipping ToW calculation")
+        print(
+            f"{utils.bcolors.WARNING}[WARNING]{utils.bcolors.ENDC} Retrain Metrics not found, skipping ToW calculation"
+        )
 
     print("Computing MIA...")
     mia_auc, mia_acc = compute_basic_mia(retain_losses, forget_losses, val_losses, test_losses)
 
     print("Computing Equalized Odds...")
-    eo, target_acc = compute_equalized_odds(model, datasets, args)
+    eo, target_acc, group_acc = compute_equalized_odds(model, datasets, args)
 
     task_metrics = {
         "retain/loss": retain_loss,
@@ -237,7 +279,7 @@ def compute_unlearning_metrics(
         "mia/auc": mia_auc,
         "mia/acc": mia_acc,
         "eo": eo,
-        "target_acc": target_acc
+        "target_acc": target_acc,
     }
     if tow != -1:
         task_metrics["tow"] = tow
@@ -246,7 +288,6 @@ def compute_unlearning_metrics(
     if retrain_metrics is not None:
         gap = compute_gap(task_metrics, retrain_metrics)
         task_metrics["gap"] = gap
-
 
     metric = "mAP" if args.task == "multilabel" else "Acc"
     print(
@@ -260,6 +301,16 @@ def compute_unlearning_metrics(
         print(f" Avg. Gap: {gap:.2f} |", end="")
     print()
 
+    if args.tmlr_rebuttal_exp:
+        print("per group accuracies:")
+        import os
+        exp_dir = os.path.join("tmlr_rebuttal_exp", args.dataset, str(args.unlearning_ratio).replace(".", "_"))
+        os.makedirs(exp_dir, exist_ok=True)
+        with open(os.path.join(exp_dir, args.method + ".txt"), "w") as fp:
+            for group in group_acc:
+                print(f"{group}: {group_acc[group]:.2f}")
+                fp.write(f"{group}: {group_acc[group]:.2f}\n")
+
     if run is not None:
         log_dict = {
             "retain/loss": retain_loss,
@@ -271,7 +322,7 @@ def compute_unlearning_metrics(
             "mia/auc": mia_auc,
             "mia/acc": mia_acc,
             "eo": eo,
-            "target_acc": target_acc
+            "target_acc": target_acc,
         }
         if tow != -1:
             log_dict["tow"] = tow

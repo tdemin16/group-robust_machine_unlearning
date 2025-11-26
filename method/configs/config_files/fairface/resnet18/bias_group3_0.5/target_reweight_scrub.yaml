@@ -18,5 +18,5 @@ forgetting_epochs: 7
 use_train_aug: False
 ssd_dampening_constant: 0.1
 ssd_selection_weighting: 0.1
-
+jtt_upsample: 2
 dro_lr: 1

@@ -3,12 +3,13 @@ import json
 import os
 import random
 import time
-import torch
 from functools import partial
+
+import torch
 from tqdm import tqdm
 
 from method import utils
-from method.metrics import evaluate_after_unlearning, compute_equalized_odds
+from method.metrics import compute_equalized_odds, evaluate_after_unlearning
 
 
 def compute_mask(model, forget_loader, criterion, args):
@@ -21,13 +22,22 @@ def compute_mask(model, forget_loader, criterion, args):
 
     print("Computing Gradients...")
     for batch in forget_loader:
-        image = batch[-3]
+        input = batch[-3]
         target = batch[-2]
 
-        image = image.to(args.device)
+        input = input.to(args.device)
         target = target.to(args.device)
 
-        output = model(image)
+        if args.model != "bert":
+            output = model(input)
+        else:
+            output = model(
+                input_ids=input[:, :, 0],
+                attention_mask=input[:, :, 1],
+                token_type_ids=input[:, :, 2],
+                labels=target,
+                # return logits
+            )[1]
         loss = -criterion(output, target)
 
         loss.backward()
@@ -72,7 +82,6 @@ def compute_mask(model, forget_loader, criterion, args):
 def random_labeling_big(model, datasets, use_mask, run, args):
     assert args.world_size == 1, "SalUn is not compatible with distributed training"
     assert args.task == "classification", "SalUn is not compatible with multilabel classification"
-    print(f"{utils.bcolors.FAIL}[ERROR]{utils.bcolors.ENDC} You should not use random_labeling_big — use random_labeling_small instead! If you really want to use random_labeling_big, make sure it works properly, as I stopped maintaining it a while ago.")
 
     train_data = datasets.get_train_data(
         args.use_train_aug, subsample=args.rob_approach == "subsample"
@@ -205,7 +214,7 @@ def random_labeling_big(model, datasets, use_mask, run, args):
 
         if args.debug:
             break
-    
+
     if args.store_curves:
         unlearning_str = args.unlearning_type
         if args.unlearning_type == "bias" and args.multi_group == 0:
@@ -305,26 +314,43 @@ def random_labeling_small(model, datasets, use_mask, run, args):
     optimizer = utils.get_optimizer(unlearned_model, args)
     scheduler = utils.get_scheduler(optimizer, args)
 
+    model.train()
+    optimizer.zero_grad()
+
     acc_curves = {"UA": [], "TA": [], "GA": []}
     num_digits = len(str(args.epochs))
     for epoch in range(args.epochs):
         unlearned_model.train()
         for desc, loader in zip(["Forget", "Retain"], [forget_loader, retain_loader]):
-            for image, target, sensitive in tqdm(
+            for input, target, sensitive in tqdm(
                 loader, desc=f"{desc} Step", leave=False, dynamic_ncols=True
             ):
-                with torch.autocast(device_type="cuda", dtype=args.dtype):
-                    image = image.to(device=args.device, dtype=args.dtype)
+                if args.model != "bert":
+                    with torch.autocast(device_type="cuda", dtype=args.dtype):
+                        input = input.to(device=args.device, dtype=args.dtype)
+                        if desc == "Forget":
+                            target = torch.randint(0, args.num_classes, target.size())
+                        target = target.to(args.device)
+                        sensitive = sensitive.to(args.device)
+                        output = unlearned_model(input)
+                else:
+                    input = input.to(device=args.device)
                     if desc == "Forget":
                         target = torch.randint(0, args.num_classes, target.size())
                     target = target.to(args.device)
                     sensitive = sensitive.to(args.device)
+                    output = unlearned_model(
+                        input_ids=input[:, :, 0],
+                        attention_mask=input[:, :, 1],
+                        token_type_ids=input[:, :, 2],
+                        labels=target,
+                        # return logits
+                    )[1]
 
-                    output = unlearned_model(image)
-                    if "dro" not in args.rob_approach:
-                        loss = criterion(output, target)
-                    else:
-                        loss = criterion(output, target, sensitive)
+                if "dro" not in args.rob_approach:
+                    loss = criterion(output, target)
+                else:
+                    loss = criterion(output, target, sensitive)
 
                 loss.backward()
 

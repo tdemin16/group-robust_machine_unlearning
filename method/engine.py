@@ -1,8 +1,9 @@
 import copy
 import math
+from typing import Iterable
+
 import torch
 from torch.nn import functional as F
-from typing import Iterable
 from tqdm import tqdm
 
 from method.metrics import mean_average_precision
@@ -24,30 +25,45 @@ def train(
 ):
 
     model.train()
+    optimizer.zero_grad()
+
     # store epoch losses and accuracies
     losses = []
     accuracies = []
 
     # init progress bar
     pbar = tqdm(train_dataloader, total=len(train_dataloader), leave=False, dynamic_ncols=True)
-    for image, target, sensitive in pbar:
-        with torch.autocast(device_type="cuda", dtype=args.dtype):
-            image = image.to(device=device, dtype=args.dtype)
+    for input, target, sensitive in pbar:
+        if args.model != "bert":
+            with torch.autocast(device_type="cuda", dtype=args.dtype):
+                input = input.to(device=device, dtype=args.dtype)
+                target = target.to(device)
+                sensitive = sensitive.to(device)
+                output = model(input)
+        else:
+            input = input.to(device=device)
             target = target.to(device)
-            sensitive = sensitive.to(args.device)
-            output = model(image)
+            sensitive = sensitive.to(device)
 
-            # use bce_with_logits_loss (requires float target)
-            if task == "multilabel":
-                loss = criterion(output, target.float())
-            # basic CE
-            elif task == "classification":
-                if "dro" not in args.rob_approach:
-                    loss = criterion(output, target)
-                else:
-                    loss = criterion(output, target, sensitive)
+            output = model(
+                input_ids=input[:, :, 0],
+                attention_mask=input[:, :, 1],
+                token_type_ids=input[:, :, 2],
+                labels=target,
+                # return logits
+            )[1]
+
+        # use bce_with_logits_loss (requires float target)
+        if task == "multilabel":
+            loss = criterion(output, target.float())
+        # basic CE
+        elif task == "classification":
+            if "dro" not in args.rob_approach:
+                loss = criterion(output, target)
             else:
-                raise ValueError(f"Unknown task {task}")
+                loss = criterion(output, target, sensitive)
+        else:
+            raise ValueError(f"Unknown task {task}")
 
         losses.append(loss.item())
 
@@ -79,9 +95,7 @@ def train(
         train_acc = sum(accuracies) / len(accuracies)
 
         # update tqdm description
-        pbar_description = (
-            f'| Lr: {optimizer.param_groups[0]["lr"]:.4f} | Loss: {train_loss:.4f} | {metric}: {train_acc:.2f} |'
-        )
+        pbar_description = f'| Lr: {optimizer.param_groups[0]["lr"]:.4f} | Loss: {train_loss:.4f} | {metric}: {train_acc:.2f} |'
         pbar.set_description(pbar_description)
 
         if warmup_scheduler is not None and epoch < warmup_epochs:
@@ -111,20 +125,34 @@ def evaluate(
     targets = []
     full_losses = []
 
-    for image, target, sensitive in tqdm(test_dataloader, leave=False, dynamic_ncols=True):
-        with torch.autocast(device_type="cuda", dtype=args.dtype):
-            image = image.to(device=device, dtype=args.dtype)
+    for input, target, sensitive in tqdm(test_dataloader, leave=False, dynamic_ncols=True):
+        if args.model != "bert":
+            with torch.autocast(device_type="cuda", dtype=args.dtype):
+                input = input.to(device=device, dtype=args.dtype)
+                target = target.to(device)
+                sensitive = sensitive.to(device)
+                output = model(input)
+        else:
+            input = input.to(device=device)
             target = target.to(device)
-            output = model(image)
+            sensitive = sensitive.to(device)
 
-            # same as above
-            if task == "multilabel":
-                loss = criterion(output, target.float())
-            elif task == "classification":
-                # not elegant
-                full_loss = F.cross_entropy(output, target, reduction="none")
-            else:
-                raise ValueError(f"Unknown task {task}")
+            output = model(
+                input_ids=input[:, :, 0],
+                attention_mask=input[:, :, 1],
+                token_type_ids=input[:, :, 2],
+                labels=target,
+                # return logits
+            )[1]
+
+        # same as above
+        if task == "multilabel":
+            loss = criterion(output, target.float())
+        elif task == "classification":
+            # not elegant
+            full_loss = F.cross_entropy(output, target, reduction="none")
+        else:
+            raise ValueError(f"Unknown task {task}")
 
         preds.append(output.cpu())
         targets.append(target.cpu())
@@ -210,7 +238,9 @@ def train_and_eval(
 
         log_string = f"| Epoch {str(epoch + 1).zfill(num_digits)}/{epochs} | Lr: {curr_lr:.4f} | Train Loss: {train_stats['loss']:.4f} | Train {metric}: {train_stats['acc']:.2f} |"
         if epoch % evaluate_every == 0:
-            log_string += f" Val Loss: {val_stats['loss']:.4f} | Val {metric}: {val_stats['acc']:.2f} |"
+            log_string += (
+                f" Val Loss: {val_stats['loss']:.4f} | Val {metric}: {val_stats['acc']:.2f} |"
+            )
         log_string += f" Time: {start.elapsed_time(end) / 1000:.1f} |"
 
         print(log_string)

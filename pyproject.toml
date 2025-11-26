@@ -1,0 +1,18 @@
+[project]
+name = "group-robust-machine-unlearning"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pytorch-transformers==1.2.0",
+    "scienceplots==2.1.1",
+    "scikit-learn==1.5.1",
+    "timm==1.0.8",
+    "torch==2.4.0",
+    "torchaudio==2.4.0",
+    "torchmetrics==1.4.1",
+    "torchvision==0.19.0",
+    "tqdm==4.66.5",
+    "wandb==0.17.6",
+]
