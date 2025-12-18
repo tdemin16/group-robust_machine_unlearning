@@ -22,10 +22,11 @@ Group-robust Machine Unlearning</br>(TMLR 2025)
 ## Citation
 ```
 @article{
-  min2025,
+  min2025grouprobust,
   title={Group-robust Machine Unlearning},
   author={Thomas De Min and Subhankar Roy and St{\'e}phane Lathuili{\`e}re and Elisa Ricci and Massimiliano Mancini},
   journal={Transactions on Machine Learning Research},
+  issn={2835-8856},
   year={2025},
   url={https://openreview.net/forum?id=StSq7mpUVw},
   note={}
